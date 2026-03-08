@@ -1,0 +1,4 @@
+add_executable(thread_pool_test thread_pool_test.cpp)
+target_link_libraries(thread_pool_test PRIVATE server_core)
+
+add_test(NAME thread_pool_test COMMAND thread_pool_test)

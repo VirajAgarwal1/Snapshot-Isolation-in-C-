@@ -2,3 +2,8 @@ add_executable(thread_pool_test thread_pool_test.cpp)
 target_link_libraries(thread_pool_test PRIVATE server_core)
 
 add_test(NAME thread_pool_test COMMAND thread_pool_test)
+
+add_executable(naive_storage_engine_test naive_storage_engine_test.cpp)
+target_link_libraries(naive_storage_engine_test PRIVATE naive_storage_engine)
+
+add_test(NAME naive_storage_engine_test COMMAND naive_storage_engine_test)

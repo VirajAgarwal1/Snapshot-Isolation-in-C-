@@ -1,5 +1,10 @@
 find_package(Threads REQUIRED)
 
+add_library(naive_storage_engine
+	naive_storage_engine/naive_storage_engine.cpp
+)
+target_include_directories(naive_storage_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 add_library(server_core
 	server/thread_pool/thread_pool.cpp
 	server/connection_handler.cpp

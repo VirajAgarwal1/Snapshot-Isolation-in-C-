@@ -1,10 +1,11 @@
 #ifndef NAIVE_STORAGE_ENGINE_NAIVE_STORAGE_ENGINE_HPP
 #define NAIVE_STORAGE_ENGINE_NAIVE_STORAGE_ENGINE_HPP
 
-#include <cstddef>
+#include <atomic>
 #include <cstdint>
+#include <cstddef>
+#include <shared_mutex>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace naive_storage_engine {
@@ -12,13 +13,18 @@ namespace naive_storage_engine {
 struct Row {
     std::uint32_t key = 0;
     std::int64_t value = 0;
-    std::string timestamp;
+    std::uint64_t timestamp = 0;
     std::string metadata;
 };
 
 struct Limits {
-    std::size_t maxUniqueKeys = 10;
-    std::size_t maxValuesPerKey = 100;
+    std::uint32_t maxUniqueKeys = 10;
+    std::uint32_t maxValuesPerKey = 100;
+};
+
+struct KeyEntry {
+    mutable std::shared_mutex lock;
+    std::vector<Row> versions;
 };
 
 class NaiveStorageEngine {
@@ -31,10 +37,9 @@ public:
     Limits limits() const;
 
 private:
-    static std::string currentTimestamp();
-
     Limits limits_;
-    std::unordered_map<std::uint32_t, std::vector<Row>> rowsByKey_;
+    std::vector<KeyEntry> keys_;
+    std::atomic<std::uint64_t> timestampCounter_{0};
 };
 
 }  // namespace naive_storage_engine

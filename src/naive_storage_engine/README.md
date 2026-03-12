@@ -21,10 +21,26 @@ Each row stores:
 
 ## Concurrency Model
 
-1. `set(key, ...)` validates key bounds, takes a per-key `unique_lock`, and appends one row.
-2. `get(key)` validates key bounds, takes a per-key `shared_lock`, and returns a copy of all versions.
+1. Callers explicitly acquire key locks:
+   - `acquireExclusiveLock(key)` for writes
+   - `acquireSharedLock(key)` for reads
+2. `set(key, ...)` and `get(key)` do not acquire locks internally.
 3. `clear()` iterates keys, takes per-key `unique_lock`, and clears versions.
 4. Operations on different keys can run concurrently because each key has an independent lock.
+
+Example:
+
+```cpp
+auto writeLock = engine.acquireExclusiveLock(3);
+if (writeLock.has_value()) {
+   (void)engine.set(3, 42, "owner=app");
+}
+
+auto readLock = engine.acquireSharedLock(3);
+if (readLock.has_value()) {
+   const auto rows = engine.get(3);
+}
+```
 
 ## Limits
 

@@ -4,6 +4,8 @@
 #include <atomic>
 #include <cstdint>
 #include <cstddef>
+#include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <string>
 #include <vector>
@@ -29,7 +31,13 @@ struct KeyEntry {
 
 class NaiveStorageEngine {
 public:
+    using SharedKeyLock = std::shared_lock<std::shared_mutex>;
+    using ExclusiveKeyLock = std::unique_lock<std::shared_mutex>;
+
     explicit NaiveStorageEngine(Limits limits = {});
+
+    std::optional<SharedKeyLock> acquireSharedLock(std::uint32_t key) const;
+    std::optional<ExclusiveKeyLock> acquireExclusiveLock(std::uint32_t key);
 
     bool set(std::uint32_t key, std::int64_t value, const std::string& metadata);
     std::vector<Row> get(std::uint32_t key) const;

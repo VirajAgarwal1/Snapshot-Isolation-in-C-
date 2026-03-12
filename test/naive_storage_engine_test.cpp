@@ -10,6 +10,26 @@
 
 namespace {
 
+bool setWithExclusiveLock(naive_storage_engine::NaiveStorageEngine& engine, std::uint32_t key,
+                          std::int64_t value, const std::string& metadata) {
+    auto lock = engine.acquireExclusiveLock(key);
+    if (!lock.has_value()) {
+        return false;
+    }
+
+    return engine.set(key, value, metadata);
+}
+
+std::vector<naive_storage_engine::Row> getWithSharedLock(
+    const naive_storage_engine::NaiveStorageEngine& engine, std::uint32_t key) {
+    auto lock = engine.acquireSharedLock(key);
+    if (!lock.has_value()) {
+        return {};
+    }
+
+    return engine.get(key);
+}
+
 bool runBasicBehaviorTest() {
     naive_storage_engine::Limits limits;
     limits.maxUniqueKeys = 2;
@@ -23,28 +43,28 @@ bool runBasicBehaviorTest() {
         return false;
     }
 
-    if (!engine.set(0U, 1000, "phase=seed")) {
+    if (!setWithExclusiveLock(engine, 0U, 1000, "phase=seed")) {
         std::cerr << "first set() failed\n";
         return false;
     }
 
-    if (!engine.set(1U, -9, "other-key")) {
+    if (!setWithExclusiveLock(engine, 1U, -9, "other-key")) {
         std::cerr << "second set() failed\n";
         return false;
     }
 
     const std::string metadata = "status=active with-spaces";
-    if (!engine.set(0U, 2000, metadata)) {
+    if (!setWithExclusiveLock(engine, 0U, 2000, metadata)) {
         std::cerr << "third set() failed\n";
         return false;
     }
 
-    if (!engine.set(0U, 3000, "v3")) {
+    if (!setWithExclusiveLock(engine, 0U, 3000, "v3")) {
         std::cerr << "fourth set() on same key should still fit per-key limit\n";
         return false;
     }
 
-    if (engine.set(0U, 4000, "v4-over-limit")) {
+    if (setWithExclusiveLock(engine, 0U, 4000, "v4-over-limit")) {
         std::cerr << "set() should fail when max values per key is exceeded\n";
         return false;
     }
@@ -54,7 +74,17 @@ bool runBasicBehaviorTest() {
         return false;
     }
 
-    const auto rows = engine.get(0U);
+    if (engine.acquireSharedLock(2U).has_value()) {
+        std::cerr << "acquireSharedLock() should fail for key >= maxUniqueKeys\n";
+        return false;
+    }
+
+    if (engine.acquireExclusiveLock(2U).has_value()) {
+        std::cerr << "acquireExclusiveLock() should fail for key >= maxUniqueKeys\n";
+        return false;
+    }
+
+    const auto rows = getWithSharedLock(engine, 0U);
     if (rows.size() != 3) {
         std::cerr << "get(0) should return all rows for that key\n";
         return false;
@@ -90,12 +120,12 @@ bool runBasicBehaviorTest() {
         return false;
     }
 
-    if (!engine.get(0U).empty()) {
+    if (!getWithSharedLock(engine, 0U).empty()) {
         std::cerr << "data should be empty after clear()\n";
         return false;
     }
 
-    if (!engine.set(1U, 500, "post-clear")) {
+    if (!setWithExclusiveLock(engine, 1U, 500, "post-clear")) {
         std::cerr << "set() should work after clear()\n";
         return false;
     }
@@ -112,7 +142,7 @@ bool runConcurrentReadTest() {
 
     constexpr int kSeedRows = 120;
     for (int i = 0; i < kSeedRows; ++i) {
-        if (!engine.set(1U, i, "seed")) {
+        if (!setWithExclusiveLock(engine, 1U, i, "seed")) {
             std::cerr << "seed set() failed in concurrent read test\n";
             return false;
         }
@@ -127,7 +157,7 @@ bool runConcurrentReadTest() {
     for (int t = 0; t < kReaderThreads; ++t) {
         threads.emplace_back([&engine, &failed]() {
             for (int i = 0; i < kReadLoops; ++i) {
-                const auto rows = engine.get(1U);
+                const auto rows = getWithSharedLock(engine, 1U);
                 if (rows.size() != kSeedRows) {
                     failed.store(true);
                     return;
@@ -169,7 +199,8 @@ bool runConcurrentWriteDifferentKeysTest() {
     for (std::uint32_t key = 0; key < kThreadCount; ++key) {
         threads.emplace_back([&engine, &failed, key]() {
             for (std::uint32_t i = 0; i < kWritesPerThread; ++i) {
-                if (!engine.set(key, static_cast<std::int64_t>(key * 100000 + i), "multi-key")) {
+                if (!setWithExclusiveLock(engine, key, static_cast<std::int64_t>(key * 100000 + i),
+                                          "multi-key")) {
                     failed.store(true);
                     return;
                 }
@@ -187,7 +218,7 @@ bool runConcurrentWriteDifferentKeysTest() {
     }
 
     for (std::uint32_t key = 0; key < kThreadCount; ++key) {
-        const auto rows = engine.get(key);
+        const auto rows = getWithSharedLock(engine, key);
         if (rows.size() != kWritesPerThread) {
             std::cerr << "wrong version count for key " << key << " after multi-key writes\n";
             return false;
@@ -214,7 +245,8 @@ bool runConcurrentWriteSameKeyTest() {
     for (std::uint32_t t = 0; t < kThreadCount; ++t) {
         threads.emplace_back([&engine, &failed, t]() {
             for (std::uint32_t i = 0; i < kWritesPerThread; ++i) {
-                if (!engine.set(0U, static_cast<std::int64_t>(t * 100000 + i), "same-key")) {
+                if (!setWithExclusiveLock(engine, 0U, static_cast<std::int64_t>(t * 100000 + i),
+                                          "same-key")) {
                     failed.store(true);
                     return;
                 }
@@ -231,7 +263,7 @@ bool runConcurrentWriteSameKeyTest() {
         return false;
     }
 
-    const auto rows = engine.get(0U);
+    const auto rows = getWithSharedLock(engine, 0U);
     if (rows.size() != kTotalWrites) {
         std::cerr << "wrong row count after same-key writes\n";
         return false;
@@ -271,14 +303,14 @@ bool runConcurrentClearSmokeTest() {
     std::thread writer([&engine]() {
         for (int i = 0; i < 5000; ++i) {
             const std::uint32_t key = static_cast<std::uint32_t>(i % 3);
-            (void)engine.set(key, i, "writer");
+            (void)setWithExclusiveLock(engine, key, i, "writer");
         }
     });
 
     std::thread reader([&engine, &failed]() {
         for (int i = 0; i < 3000; ++i) {
             for (std::uint32_t key = 0; key < 3; ++key) {
-                const auto rows = engine.get(key);
+                const auto rows = getWithSharedLock(engine, key);
                 if (rows.size() > 64) {
                     failed.store(true);
                     return;
@@ -308,7 +340,7 @@ bool runConcurrentClearSmokeTest() {
     }
 
     for (std::uint32_t key = 0; key < 3; ++key) {
-        if (!engine.get(key).empty()) {
+        if (!getWithSharedLock(engine, key).empty()) {
             std::cerr << "key should be empty after final clear() in clear smoke test\n";
             return false;
         }

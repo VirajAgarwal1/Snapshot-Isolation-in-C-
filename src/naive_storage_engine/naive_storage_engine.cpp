@@ -12,15 +12,30 @@ NaiveStorageEngine::NaiveStorageEngine(Limits limits) : limits_(limits), keys_(l
     }
 }
 
+std::optional<NaiveStorageEngine::SharedKeyLock> NaiveStorageEngine::acquireSharedLock(
+    std::uint32_t key) const {
+    if (key >= limits_.maxUniqueKeys) {
+        return std::nullopt;
+    }
+
+    return SharedKeyLock(keys_[key].lock);
+}
+
+std::optional<NaiveStorageEngine::ExclusiveKeyLock> NaiveStorageEngine::acquireExclusiveLock(
+    std::uint32_t key) {
+    if (key >= limits_.maxUniqueKeys) {
+        return std::nullopt;
+    }
+
+    return ExclusiveKeyLock(keys_[key].lock);
+}
+
 bool NaiveStorageEngine::set(std::uint32_t key, std::int64_t value, const std::string& metadata) {
     if (key >= limits_.maxUniqueKeys) {
         return false;
     }
 
     KeyEntry& entry = keys_[key];
-
-    // Per-key writer lock: writes to different keys proceed independently.
-    std::unique_lock<std::shared_mutex> lock(entry.lock);
     if (entry.versions.size() >= limits_.maxValuesPerKey) {
         return false;
     }
@@ -36,9 +51,6 @@ std::vector<Row> NaiveStorageEngine::get(std::uint32_t key) const {
     }
 
     const KeyEntry& entry = keys_[key];
-
-    // Per-key reader lock allows concurrent readers for the same key.
-    std::shared_lock<std::shared_mutex> lock(entry.lock);
     return entry.versions;
 }
 

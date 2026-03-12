@@ -49,15 +49,43 @@ What MVCC will internally do for each of the transactions:
     1. Acquire read lock on the txn hashmap
     2. Get the snapshot info from the hashmap using the id.
     3. Release read lock on the txn hashmap
-    4. Retrieve all the values for the key from the storage engine.
-    5. Go through each value's version and get the versions which satisfy the following conditions (in conjunction):
+    4. Acquire shared lock (reader lock) on the key.
+    5. Retrieve all the values for the key from the storage engine.
+    6. Release shared lock on the key.
+    7. Go through each value's version and get the versions which satisfy the following conditions (in conjunction):
         1. value's TransID (vtid) < SnapShot's min TransID (stid_min)
         2. vtid is NOT IN snapshot's set of active transactions at the time (s_act_t)
         3. vtid txn is IN the committed txns set
         
         **OR** it could just satisfy this condition:
         1. vtid == txn id under which this operation is working.
-    6. Once we got the chain of versions visible to this snapshot, we just return value with the latest value, i.e. which has the highest transaction id. If the latest value was marked as a tombstone in its metadata, then we return that the key has been deleted. If our filtered chain has no versions then report back that the key doesnt exist.
+    8. Once we got the chain of versions visible to this snapshot, we just return value with the latest value, i.e. which has the highest transaction id. If the latest value was marked as a tombstone in its metadata, then we return that the key has been deleted. If our filtered chain has no versions then report back that the key doesnt exist.
+3. Set Operation
+    1. Acquire read lock on the txn hashmap
+    2. Get the snapshot info from the hashmap using the id.
+    3. Release read lock on the txn hashmap
+    4. Acquire Exclusive lock (writer lock) on the key.
+    5. Retrieve all the values for the key from the storage engine.
+    6. Fetch the last version (one at the back of vector of values). If the version of this value satisfies these conditions then we will have to abort the txn because we have writer-writer conflict on our hands.
+        1. vtid != txn id under which this operation is working.
+        2. vtid >= stid_min
+    6. Make the edit in the key in the storage engine.
+    7. Release Exclusive lock on the key.
+4. Delete Operation
+    - Same as set operation. Instead of value you mark the verion as dead in the metadata.
+5. Commit Transaction
+    1. Acquire write lock on active txns set
+    2. Remove this txn from the set
+    3. Release write lock on active txns set
+    4. Acquire write lock on the committed txns set.
+    5. Add this txn to the set.
+    6. Release write lock on the committed txns set.
+6. Abort Transaction
+    1. Acquire write lock on active txns set
+    2. Remove this txn from the set
+    3. Release write lock on active txns set
+7. Vaccum
+
 
 
 ## TODO:

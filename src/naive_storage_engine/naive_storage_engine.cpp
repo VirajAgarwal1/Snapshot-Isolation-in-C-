@@ -54,6 +54,37 @@ std::vector<Row> NaiveStorageEngine::get(std::uint32_t key) const {
     return entry.versions;
 }
 
+bool NaiveStorageEngine::vacuumByHorizon(std::uint32_t key, std::uint64_t horizonTimestamp) {
+    if (key >= limits_.maxUniqueKeys) {
+        return false;
+    }
+
+    KeyEntry& entry = keys_[key];
+    if (entry.versions.empty()) {
+        return true;
+    }
+
+    auto boundaryIt = entry.versions.begin();
+    while (boundaryIt != entry.versions.end() && boundaryIt->timestamp < horizonTimestamp) {
+        ++boundaryIt;
+    }
+
+    if (boundaryIt == entry.versions.begin()) {
+        return true;
+    }
+
+    auto keeperIt = boundaryIt;
+    if (keeperIt == entry.versions.end()) {
+        --keeperIt;
+    } else {
+        --keeperIt;
+    }
+
+    keeperIt->timestamp = 0;
+    entry.versions.erase(entry.versions.begin(), keeperIt);
+    return true;
+}
+
 bool NaiveStorageEngine::clear() {
     for (KeyEntry& entry : keys_) {
         std::unique_lock<std::shared_mutex> lock(entry.lock);

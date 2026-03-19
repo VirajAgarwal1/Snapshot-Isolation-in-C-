@@ -41,6 +41,7 @@ public:
 
     bool set(std::uint32_t key, std::int64_t value, const std::string& metadata);
     std::vector<Row> get(std::uint32_t key) const;
+    bool vacuumByHorizon(std::uint32_t key, std::uint64_t horizonTimestamp);
     bool clear();
     Limits limits() const;
 

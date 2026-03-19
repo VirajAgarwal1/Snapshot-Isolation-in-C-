@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <thread>
 #include <vector>
@@ -18,6 +19,16 @@ bool setWithExclusiveLock(naive_storage_engine::NaiveStorageEngine& engine, std:
     }
 
     return engine.set(key, value, metadata);
+}
+
+bool vacuumWithExclusiveLock(naive_storage_engine::NaiveStorageEngine& engine, std::uint32_t key,
+                             std::uint64_t horizonTimestamp) {
+    auto lock = engine.acquireExclusiveLock(key);
+    if (!lock.has_value()) {
+        return false;
+    }
+
+    return engine.vacuumByHorizon(key, horizonTimestamp);
 }
 
 std::vector<naive_storage_engine::Row> getWithSharedLock(
@@ -127,6 +138,103 @@ bool runBasicBehaviorTest() {
 
     if (!setWithExclusiveLock(engine, 1U, 500, "post-clear")) {
         std::cerr << "set() should work after clear()\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool runVacuumByHorizonTest() {
+    naive_storage_engine::Limits limits;
+    limits.maxUniqueKeys = 2;
+    limits.maxValuesPerKey = 10;
+
+    naive_storage_engine::NaiveStorageEngine engine(limits);
+
+    if (!vacuumWithExclusiveLock(engine, 0U, 5U)) {
+        std::cerr << "vacuumByHorizon() should succeed for empty key history\n";
+        return false;
+    }
+
+    for (int i = 0; i < 6; ++i) {
+        if (!setWithExclusiveLock(engine, 0U, i, "vacuum-seed")) {
+            std::cerr << "seed set() failed in vacuum test\n";
+            return false;
+        }
+    }
+
+    const auto rowsBeforeVacuum = getWithSharedLock(engine, 0U);
+    if (rowsBeforeVacuum.size() != 6U) {
+        std::cerr << "unexpected seed row count in vacuum test\n";
+        return false;
+    }
+
+    const std::uint64_t horizonTimestamp = rowsBeforeVacuum[3].timestamp;
+    if (!vacuumWithExclusiveLock(engine, 0U, horizonTimestamp)) {
+        std::cerr << "vacuumByHorizon() failed for valid key\n";
+        return false;
+    }
+
+    const auto rowsAfterVacuum = getWithSharedLock(engine, 0U);
+    if (rowsAfterVacuum.size() != 4U) {
+        std::cerr << "vacuumByHorizon() should keep boundary predecessor and newer rows\n";
+        return false;
+    }
+
+    if (rowsAfterVacuum[0].value != 2 || rowsAfterVacuum[0].timestamp != 0) {
+        std::cerr << "vacuumByHorizon() should mark retained boundary predecessor with timestamp 0\n";
+        return false;
+    }
+
+    if (rowsAfterVacuum[1].value != 3 || rowsAfterVacuum[1].timestamp != rowsBeforeVacuum[3].timestamp) {
+        std::cerr << "vacuumByHorizon() should preserve first row at/after horizon\n";
+        return false;
+    }
+
+    if (rowsAfterVacuum[2].value != 4 || rowsAfterVacuum[3].value != 5) {
+        std::cerr << "vacuumByHorizon() should preserve newest rows\n";
+        return false;
+    }
+
+    const auto rowsBeforeNoOpVacuum = rowsAfterVacuum;
+    if (!vacuumWithExclusiveLock(engine, 0U, 0U)) {
+        std::cerr << "vacuumByHorizon() with horizon 0 should succeed\n";
+        return false;
+    }
+
+    const auto rowsAfterNoOpVacuum = getWithSharedLock(engine, 0U);
+    if (rowsAfterNoOpVacuum.size() != rowsBeforeNoOpVacuum.size()) {
+        std::cerr << "vacuumByHorizon() with horizon 0 should be no-op\n";
+        return false;
+    }
+
+    for (std::size_t i = 0; i < rowsAfterNoOpVacuum.size(); ++i) {
+        if (rowsAfterNoOpVacuum[i].value != rowsBeforeNoOpVacuum[i].value ||
+            rowsAfterNoOpVacuum[i].timestamp != rowsBeforeNoOpVacuum[i].timestamp ||
+            rowsAfterNoOpVacuum[i].metadata != rowsBeforeNoOpVacuum[i].metadata) {
+            std::cerr << "vacuumByHorizon() with horizon 0 changed row content\n";
+            return false;
+        }
+    }
+
+    if (!vacuumWithExclusiveLock(engine, 0U, std::numeric_limits<std::uint64_t>::max())) {
+        std::cerr << "vacuumByHorizon() with large horizon should succeed\n";
+        return false;
+    }
+
+    const auto rowsAfterFullVacuum = getWithSharedLock(engine, 0U);
+    if (rowsAfterFullVacuum.size() != 1U) {
+        std::cerr << "vacuumByHorizon() with large horizon should keep only newest row\n";
+        return false;
+    }
+
+    if (rowsAfterFullVacuum[0].value != 5 || rowsAfterFullVacuum[0].timestamp != 0) {
+        std::cerr << "vacuumByHorizon() with large horizon should normalize newest row timestamp\n";
+        return false;
+    }
+
+    if (engine.vacuumByHorizon(2U, 1U)) {
+        std::cerr << "vacuumByHorizon() should fail for key >= maxUniqueKeys\n";
         return false;
     }
 
@@ -352,7 +460,7 @@ bool runConcurrentClearSmokeTest() {
 }  // namespace
 
 int main() {
-    const bool ok = runBasicBehaviorTest() && runConcurrentReadTest() &&
+    const bool ok = runBasicBehaviorTest() && runVacuumByHorizonTest() && runConcurrentReadTest() &&
                     runConcurrentWriteDifferentKeysTest() && runConcurrentWriteSameKeyTest() &&
                     runConcurrentClearSmokeTest();
     return ok ? 0 : 1;

@@ -7,7 +7,7 @@ This naive storage engine is intentionally simple and in-memory only.
 3. Each key has its own `KeyEntry`:
    - `std::shared_mutex lock`
    - `std::vector<Row> versions`
-4. `versions` is append-only for each key.
+4. Normal writes append to `versions`; explicit vacuum compaction can remove old prefixes and normalize one retained row's timestamp.
 5. During initialization, every `versions` vector reserves `maxValuesPerKey`, so per-key version vectors do not reallocate while growing up to the configured limit.
 
 ## Row Model
@@ -24,7 +24,7 @@ Each row stores:
 1. Callers explicitly acquire key locks:
    - `acquireExclusiveLock(key)` for writes
    - `acquireSharedLock(key)` for reads
-2. `set(key, ...)` and `get(key)` do not acquire locks internally.
+2. `set(key, ...)`, `get(key)`, and `vacuumByHorizon(key, horizonTimestamp)` do not acquire locks internally.
 3. `clear()` iterates keys, takes per-key `unique_lock`, and clears versions.
 4. Operations on different keys can run concurrently because each key has an independent lock.
 
@@ -40,7 +40,26 @@ auto readLock = engine.acquireSharedLock(3);
 if (readLock.has_value()) {
    const auto rows = engine.get(3);
 }
+
+auto vacuumLock = engine.acquireExclusiveLock(3);
+if (vacuumLock.has_value()) {
+   (void)engine.vacuumByHorizon(3, 200); // MVCC-style compaction for one key.
+}
 ```
+
+## MVCC Vacuum Support
+
+`vacuumByHorizon(key, horizonTimestamp)` is intended for MVCC vacuum workflows and operates on a single key:
+
+1. Find the first version with `timestamp >= horizonTimestamp`.
+2. Keep the version immediately before that boundary (if one exists), and set its `timestamp` to `0`.
+3. Purge all versions older than that retained row.
+4. Keep all boundary-and-newer versions as-is.
+
+Edge behavior:
+
+- If no row exists before the boundary, the method is a no-op.
+- If all rows are older than the horizon, only the newest row is kept and its `timestamp` becomes `0`.
 
 ## Limits
 

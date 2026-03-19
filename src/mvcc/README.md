@@ -91,13 +91,27 @@ What MVCC will internally do for each of the transactions:
     2. Remove this txn from the set
     3. Release write lock on active txns set
 7. Vaccum
-    1. To clear txns from the txn-snapshot hashmap, we see all active txns. Whatever txns are not there in it but are there in this hashmap, will be removed.
-    2. To clear the set of committed txns set, I will get the snapshot info for all the active txns right now. Then find the minimum of all the stid_min of these snapshots (lets call this new minimum as db_horizon). What all txns in the committed set are less than this horizon, we will remove them.
-    3. To make space in the storage engine, I'll go to each key and iterate through each version until I find the one which has vtid greater than or equal to the db_horizon. The version just before this one (lets call it before_horizon_version) will be kept, and everything before it will be purged. We will also change the vtid of this before_horizon_version to 0. This will allow set and get operations to read it and automatically infer that this is committed txn without checking any other data structure.
+    1. Acquire read lock on active txns set.
+    2. Copy the current active txns set into a local variable.
+    3. Release read lock on active txns set.
+    4. Acquire write lock on txn to snapshot hashmap.
+    5. Remove all entries from this hashmap whose txn id is not present in the copied active txns set.
+    6. Release write lock on txn to snapshot hashmap.
+    7. Acquire read lock on txn to snapshot hashmap.
+    8. For every txn id in the copied active txns set, read its snapshot info from the hashmap and compute the minimum of all the stid_min values. Lets call this minimum db_horizon. If there are no txns in the active set then db_horizon will be the current Global Transaction Id.
+    9. Release read lock on txn to snapshot hashmap.
+    10. For each key in the storage engine:
+        1. Acquire Exclusive lock (writer lock) on the key.
+        2. Retrieve all versions for this key from the storage engine.
+        3. Iterate through the versions until the first one whose vtid is greater than or equal to db_horizon is found.
+        4. Keep the version immediately before this boundary (before_horizon_version) and purge every older version.
+        5. Change the vtid of before_horizon_version to 0. This will allow set and get operations to read it and automatically infer that this is a committed version without checking any other data structure.
+        6. Release Exclusive lock on the key.
+    11. Acquire write lock on the committed txns set.
+    12. Remove every committed txn whose txn id is less than db_horizon.
+    13. Release write lock on the committed txns set.
 
 
-
-## TODO:
-- Maintain active transactions set properly. Since, if some txn aborts/completed but it didn't get reflected in the active set, then we have a problem. My whole MVCC Snapshot Isolation system relies on this assumption that the active is an accurate depiction of the current state of all transactions.
-- Figure out a way to reset the global transaction id counter. The system will crash as soon as that counter reaches its maximum.
-- In set and get operations add the condition that if the txn id is 0 then it is definitely visible.
+## Notes
+- I will keep transactionID as uint64, since even with a billions txns each second I will run of space with this uint64 in about 580 years. So, I'll say its a good thing to think about but the only solution which makes sense is to start the system fresh, manually set GlobalTID as 0 and vaccum.
+- Every error handling path in an operation inside a txn, should use ABort command.

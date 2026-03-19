@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <string>
@@ -29,6 +30,18 @@ bool vacuumWithExclusiveLock(naive_storage_engine::NaiveStorageEngine& engine, s
     }
 
     return engine.vacuumByHorizon(key, horizonTimestamp);
+}
+
+bool updateWithExclusiveLock(
+    naive_storage_engine::NaiveStorageEngine& engine, std::uint32_t key,
+    const std::function<bool(const naive_storage_engine::Row&)>& shouldUpdate,
+    const std::function<void(naive_storage_engine::Row&)>& applyUpdate) {
+    auto lock = engine.acquireExclusiveLock(key);
+    if (!lock.has_value()) {
+        return false;
+    }
+
+    return engine.updateVersions(key, shouldUpdate, applyUpdate);
 }
 
 std::vector<naive_storage_engine::Row> getWithSharedLock(
@@ -139,6 +152,86 @@ bool runBasicBehaviorTest() {
     if (!setWithExclusiveLock(engine, 1U, 500, "post-clear")) {
         std::cerr << "set() should work after clear()\n";
         return false;
+    }
+
+    return true;
+}
+
+bool runUpdateVersionsBehaviorTest() {
+    naive_storage_engine::Limits limits;
+    limits.maxUniqueKeys = 2;
+    limits.maxValuesPerKey = 10;
+
+    naive_storage_engine::NaiveStorageEngine engine(limits);
+
+    if (!setWithExclusiveLock(engine, 0U, 10, "v1")) {
+        std::cerr << "seed row 1 failed in updateVersions test\n";
+        return false;
+    }
+
+    if (!setWithExclusiveLock(engine, 0U, 20, "target")) {
+        std::cerr << "seed row 2 failed in updateVersions test\n";
+        return false;
+    }
+
+    if (!setWithExclusiveLock(engine, 0U, 30, "v3")) {
+        std::cerr << "seed row 3 failed in updateVersions test\n";
+        return false;
+    }
+
+    const bool updated = updateWithExclusiveLock(
+        engine, 0U,
+        [](const naive_storage_engine::Row& row) { return row.metadata == "target"; },
+        [](naive_storage_engine::Row& row) {
+            row.value = 2000;
+            row.metadata = "target-updated";
+        });
+
+    if (!updated) {
+        std::cerr << "updateVersions() should report true when at least one row is changed\n";
+        return false;
+    }
+
+    const auto rowsAfterUpdate = getWithSharedLock(engine, 0U);
+    if (rowsAfterUpdate.size() != 3U) {
+        std::cerr << "updateVersions() should not change number of versions\n";
+        return false;
+    }
+
+    if (rowsAfterUpdate[1].value != 2000 || rowsAfterUpdate[1].metadata != "target-updated") {
+        std::cerr << "updateVersions() did not apply mutator to matching row\n";
+        return false;
+    }
+
+    const bool updatedNothing = updateWithExclusiveLock(
+        engine, 0U,
+        [](const naive_storage_engine::Row& row) { return row.metadata == "missing"; },
+        [](naive_storage_engine::Row& row) { row.value = -1; });
+
+    if (updatedNothing) {
+        std::cerr << "updateVersions() should return false when no rows match\n";
+        return false;
+    }
+
+    {
+        auto lock = engine.acquireExclusiveLock(0U);
+        if (!lock.has_value()) {
+            std::cerr << "exclusive lock acquisition failed in updateVersions test\n";
+            return false;
+        }
+
+        if (engine.updateVersions(2U, [](const naive_storage_engine::Row&) { return true; },
+                                  [](naive_storage_engine::Row& row) { row.value = 7; })) {
+            std::cerr << "updateVersions() should fail for key >= maxUniqueKeys\n";
+            return false;
+        }
+
+        std::function<bool(const naive_storage_engine::Row&)> emptyPredicate;
+        if (engine.updateVersions(0U, emptyPredicate,
+                                  [](naive_storage_engine::Row& row) { row.value = 9; })) {
+            std::cerr << "updateVersions() should fail when predicate callback is empty\n";
+            return false;
+        }
     }
 
     return true;
@@ -460,7 +553,8 @@ bool runConcurrentClearSmokeTest() {
 }  // namespace
 
 int main() {
-    const bool ok = runBasicBehaviorTest() && runVacuumByHorizonTest() && runConcurrentReadTest() &&
+    const bool ok = runBasicBehaviorTest() && runUpdateVersionsBehaviorTest() &&
+                    runVacuumByHorizonTest() && runConcurrentReadTest() &&
                     runConcurrentWriteDifferentKeysTest() && runConcurrentWriteSameKeyTest() &&
                     runConcurrentClearSmokeTest();
     return ok ? 0 : 1;

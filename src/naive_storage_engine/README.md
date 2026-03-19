@@ -24,7 +24,7 @@ Each row stores:
 1. Callers explicitly acquire key locks:
    - `acquireExclusiveLock(key)` for writes
    - `acquireSharedLock(key)` for reads
-2. `set(key, ...)`, `get(key)`, and `vacuumByHorizon(key, horizonTimestamp)` do not acquire locks internally.
+2. `set(key, ...)`, `get(key)`, `updateVersions(key, predicate, mutator)`, and `vacuumByHorizon(key, horizonTimestamp)` do not acquire locks internally.
 3. `clear()` iterates keys, takes per-key `unique_lock`, and clears versions.
 4. Operations on different keys can run concurrently because each key has an independent lock.
 
@@ -39,6 +39,15 @@ if (writeLock.has_value()) {
 auto readLock = engine.acquireSharedLock(3);
 if (readLock.has_value()) {
    const auto rows = engine.get(3);
+}
+
+auto updateLock = engine.acquireExclusiveLock(3);
+if (updateLock.has_value()) {
+   (void)engine.updateVersions(
+      3,
+      [](const naive_storage_engine::Row& row) { return row.metadata == "target"; },
+      [](naive_storage_engine::Row& row) { row.metadata = "target-updated"; }
+   );
 }
 
 auto vacuumLock = engine.acquireExclusiveLock(3);

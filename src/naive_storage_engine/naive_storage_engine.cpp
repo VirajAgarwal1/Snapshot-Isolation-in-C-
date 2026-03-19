@@ -54,6 +54,27 @@ std::vector<Row> NaiveStorageEngine::get(std::uint32_t key) const {
     return entry.versions;
 }
 
+bool NaiveStorageEngine::updateVersions(std::uint32_t key,
+                                        const std::function<bool(const Row&)>& shouldUpdate,
+                                        const std::function<void(Row&)>& applyUpdate) {
+    if (key >= limits_.maxUniqueKeys || !shouldUpdate || !applyUpdate) {
+        return false;
+    }
+
+    KeyEntry& entry = keys_[key];
+    bool updated = false;
+    for (Row& row : entry.versions) {
+        if (!shouldUpdate(row)) {
+            continue;
+        }
+
+        applyUpdate(row);
+        updated = true;
+    }
+
+    return updated;
+}
+
 bool NaiveStorageEngine::vacuumByHorizon(std::uint32_t key, std::uint64_t horizonTimestamp) {
     if (key >= limits_.maxUniqueKeys) {
         return false;

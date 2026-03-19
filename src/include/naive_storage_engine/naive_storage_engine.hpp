@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstddef>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
@@ -41,6 +42,8 @@ public:
 
     bool set(std::uint32_t key, std::int64_t value, const std::string& metadata);
     std::vector<Row> get(std::uint32_t key) const;
+    bool updateVersions(std::uint32_t key, const std::function<bool(const Row&)>& shouldUpdate,
+                        const std::function<void(Row&)>& applyUpdate);
     bool vacuumByHorizon(std::uint32_t key, std::uint64_t horizonTimestamp);
     bool clear();
     Limits limits() const;

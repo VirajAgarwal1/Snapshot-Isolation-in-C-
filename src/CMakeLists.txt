@@ -5,6 +5,17 @@ add_library(naive_storage_engine
 )
 target_include_directories(naive_storage_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+add_library(mvcc_metadata_codec
+	util/mvcc_metadata_codec.cpp
+)
+target_include_directories(mvcc_metadata_codec PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+add_library(mvcc
+	mvcc/mvcc.cpp
+)
+target_include_directories(mvcc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(mvcc PUBLIC naive_storage_engine mvcc_metadata_codec)
+
 add_library(server_core
 	server/thread_pool/thread_pool.cpp
 	server/connection_handler.cpp

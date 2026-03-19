@@ -7,3 +7,8 @@ add_executable(naive_storage_engine_test naive_storage_engine_test.cpp)
 target_link_libraries(naive_storage_engine_test PRIVATE naive_storage_engine)
 
 add_test(NAME naive_storage_engine_test COMMAND naive_storage_engine_test)
+
+add_executable(mvcc_test mvcc_test.cpp)
+target_link_libraries(mvcc_test PRIVATE mvcc)
+
+add_test(NAME mvcc_test COMMAND mvcc_test)

@@ -1,8 +1,8 @@
 ## Interface
 
-This will create the MVCC. This will basically, present a wrapper on top of the naive storage engine. It will expose the following methods to the user:
+This will create the MVCC. This will basically, present a wrapper on top of the naive storage engine. The current implementation exposes this through the `MVCC` class and supports the following operations:
 1. Start Transaction: This method will give back a transaction id which should be used for further operations inside this transaction.
-2. "Get" Operation: Given the transaction id, and the key whose value you want to get. This operation will give you its value (just 1).
+2. "Get" Operation: Given the transaction id, and the key whose value you want to get. This operation can report that the key was found, deleted, or not found. A value is returned only in the found case.
 3. "Set" Operation: Given the txn id, and the key whose value you want to set. This op will set its value.
 4. "Delete" Operation: Given the txn id, and the key you want to delete. This op will delete its value, by updating the currently latest value (according to the snapshot of the transaction) and adding a new value with the same key as a tombstone.
 5. "Commit" Transaction: This will mark all the operations in this txn as committed. And this txn cannot be used further, once closed.
@@ -29,6 +29,7 @@ The mvcc will keep certain data structures with itself alive all the time:
 In the metadata of key key value pair I will store the following:
 1. Transaction ID: Of the transaction which created/updated this version of the value
 2. IsDead: Boolean telling if this version is tombstone or not. If this is true then it means that the transaction had meant to delete this key.
+3. In the current implementation this metadata is encoded into the storage-engine string as `txnId|isDead`.
 
 
 ## Algorithm
@@ -114,4 +115,4 @@ What MVCC will internally do for each of the transactions:
 
 ## Notes
 - I will keep transactionID as uint64, since even with a billions txns each second I will run of space with this uint64 in about 580 years. So, I'll say its a good thing to think about but the only solution which makes sense is to start the system fresh, manually set GlobalTID as 0 and vaccum.
-- Every error handling path in an operation inside a txn, should use ABort command.
+- Every error handling path in an operation inside a txn, should use ABort command. The current implementation does this for `get`, `set`, and `deleteKey` by aborting the transaction if an internal failure happens in the middle of the operation.

@@ -100,14 +100,14 @@ bool runSnapshotIsolationTest() {
 
     mvcc::MVCC store(limits);
 
-    const mvcc::TransactionId seedTxn = store.startTransaction();
+    const mvcc::TransactionId seedTxn = store.startTransaction().transactionId;
     if (!store.set(seedTxn, 0U, 100) || !store.commit(seedTxn)) {
         std::cerr << "seed transaction failed in snapshot isolation test\n";
         return false;
     }
 
-    const mvcc::TransactionId readerTxn = store.startTransaction();
-    const mvcc::TransactionId writerTxn = store.startTransaction();
+    const mvcc::TransactionId readerTxn = store.startTransaction().transactionId;
+    const mvcc::TransactionId writerTxn = store.startTransaction().transactionId;
 
     if (!store.set(writerTxn, 0U, 200) || !store.commit(writerTxn)) {
         std::cerr << "writer transaction failed in snapshot isolation test\n";
@@ -124,7 +124,7 @@ bool runSnapshotIsolationTest() {
         return false;
     }
 
-    const mvcc::TransactionId freshTxn = store.startTransaction();
+    const mvcc::TransactionId freshTxn = store.startTransaction().transactionId;
     if (!expectFound(store.get(freshTxn, 0U), 200,
                      "fresh transaction should see latest committed value")) {
         return false;
@@ -145,19 +145,19 @@ bool runDeleteAndNotFoundTest() {
 
     mvcc::MVCC store(limits);
 
-    const mvcc::TransactionId createTxn = store.startTransaction();
+    const mvcc::TransactionId createTxn = store.startTransaction().transactionId;
     if (!store.set(createTxn, 1U, 55) || !store.commit(createTxn)) {
         std::cerr << "create transaction failed in delete test\n";
         return false;
     }
 
-    const mvcc::TransactionId deleteTxn = store.startTransaction();
+    const mvcc::TransactionId deleteTxn = store.startTransaction().transactionId;
     if (!store.deleteKey(deleteTxn, 1U) || !store.commit(deleteTxn)) {
         std::cerr << "delete transaction failed in delete test\n";
         return false;
     }
 
-    const mvcc::TransactionId readTxn = store.startTransaction();
+    const mvcc::TransactionId readTxn = store.startTransaction().transactionId;
     if (!expectDeleted(store.get(readTxn, 1U), "deleted key should report Deleted status")) {
         return false;
     }
@@ -181,8 +181,8 @@ bool runConflictAutoAbortTest() {
 
     mvcc::MVCC store(limits);
 
-    const mvcc::TransactionId firstTxn = store.startTransaction();
-    const mvcc::TransactionId conflictingTxn = store.startTransaction();
+    const mvcc::TransactionId firstTxn = store.startTransaction().transactionId;
+    const mvcc::TransactionId conflictingTxn = store.startTransaction().transactionId;
 
     if (!store.set(firstTxn, 0U, 10) || !store.commit(firstTxn)) {
         std::cerr << "first transaction failed in conflict test\n";
@@ -199,7 +199,7 @@ bool runConflictAutoAbortTest() {
         return false;
     }
 
-    const mvcc::TransactionId verifyTxn = store.startTransaction();
+    const mvcc::TransactionId verifyTxn = store.startTransaction().transactionId;
     if (!expectFound(store.get(verifyTxn, 0U), 10, "conflict should not overwrite existing value")) {
         return false;
     }
@@ -219,7 +219,7 @@ bool runAbortVisibilityTest() {
 
     mvcc::MVCC store(limits);
 
-    const mvcc::TransactionId writeTxn = store.startTransaction();
+    const mvcc::TransactionId writeTxn = store.startTransaction().transactionId;
     if (!store.set(writeTxn, 0U, 900)) {
         std::cerr << "set() failed in abort visibility test\n";
         return false;
@@ -230,7 +230,7 @@ bool runAbortVisibilityTest() {
         return false;
     }
 
-    const mvcc::TransactionId readerTxn = store.startTransaction();
+    const mvcc::TransactionId readerTxn = store.startTransaction().transactionId;
     if (!expectNotFound(store.get(readerTxn, 0U), "aborted write should not become visible")) {
         return false;
     }
@@ -250,13 +250,13 @@ bool runVacuumPreservesVisibilityTest() {
 
     mvcc::MVCC store(limits);
 
-    const mvcc::TransactionId txn1 = store.startTransaction();
+    const mvcc::TransactionId txn1 = store.startTransaction().transactionId;
     if (!store.set(txn1, 0U, 7) || !store.commit(txn1)) {
         std::cerr << "txn1 failed in vacuum test\n";
         return false;
     }
 
-    const mvcc::TransactionId txn2 = store.startTransaction();
+    const mvcc::TransactionId txn2 = store.startTransaction().transactionId;
     if (!store.set(txn2, 0U, 9) || !store.commit(txn2)) {
         std::cerr << "txn2 failed in vacuum test\n";
         return false;
@@ -267,7 +267,7 @@ bool runVacuumPreservesVisibilityTest() {
         return false;
     }
 
-    const mvcc::TransactionId postVacuumReadTxn = store.startTransaction();
+    const mvcc::TransactionId postVacuumReadTxn = store.startTransaction().transactionId;
     if (!expectFound(store.get(postVacuumReadTxn, 0U), 9,
                      "post-vacuum read should still see latest value")) {
         return false;
@@ -278,7 +278,7 @@ bool runVacuumPreservesVisibilityTest() {
         return false;
     }
 
-    const mvcc::TransactionId tombstoneTxn = store.startTransaction();
+    const mvcc::TransactionId tombstoneTxn = store.startTransaction().transactionId;
     if (!store.deleteKey(tombstoneTxn, 0U) || !store.commit(tombstoneTxn)) {
         std::cerr << "tombstone transaction failed in vacuum test\n";
         return false;
@@ -289,7 +289,7 @@ bool runVacuumPreservesVisibilityTest() {
         return false;
     }
 
-    const mvcc::TransactionId deletedReadTxn = store.startTransaction();
+    const mvcc::TransactionId deletedReadTxn = store.startTransaction().transactionId;
     if (!expectDeleted(store.get(deletedReadTxn, 0U),
                        "post-vacuum read should preserve tombstone visibility")) {
         return false;

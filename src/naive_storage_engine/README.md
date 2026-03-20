@@ -1,5 +1,16 @@
 This naive storage engine is intentionally simple and in-memory only.
 
+## Public API
+
+- `acquireExclusiveLock(key)`
+- `acquireSharedLock(key)`
+- `set(key, value, metadata)`
+- `get(key)`
+- `updateVersions(key, predicate, mutator)`
+- `vacuumByHorizon(key, horizonTimestamp)`
+- `clear()`
+- `limits()`
+
 ## Design
 
 1. The key directory is fixed-size and indexed directly by key (`[0..maxUniqueKeys)`).
@@ -64,6 +75,8 @@ if (vacuumLock.has_value()) {
 2. Keep the version immediately before that boundary (if one exists), and set its `timestamp` to `0`.
 3. Purge all versions older than that retained row.
 4. Keep all boundary-and-newer versions as-is.
+
+After this step, MVCC can additionally normalize metadata on the retained row (for example setting `txnId` to `0`) using `updateVersions(...)`.
 
 Edge behavior:
 

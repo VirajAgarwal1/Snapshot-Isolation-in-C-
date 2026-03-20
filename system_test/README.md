@@ -4,7 +4,7 @@ This test is meant to seriously stress the MVCC with many threads at once.
 
 I start with all keys already inserted through normal MVCC flow. After that, many threads start doing random transactions. Each transaction works only on one continuous band of keys, and inside that band it will randomly do reads, updates, and deletes.
 
-I am keeping all the raw logs in memory while the run is going on. This is better because writing to files during the run would slow things down and would also mess with the timing too much. Once the run finishes, I dump the logs to readable files.
+I keep all raw logs in memory while the run is going on. This avoids run-time file I/O noise in the hot path. Once the run finishes, logs are dumped to readable files.
 
 ## Build and run
 
@@ -29,6 +29,14 @@ Each thread:
 
 The percentages and all other numbers are not hidden deep in the code. They are all kept at the top of the test file so they are easy to change.
 
+Current defaults in `mvcc_system_test.cpp`:
+
+- `kThreadCount = 10`
+- `kTotalKeys = 500`
+- key-band width = `40%` of key-space per transaction
+- operations mix: read `60%`, set `35%`, delete `5%`
+- commit probability: `95%` (else explicit abort)
+
 ## Logging
 
 Each thread gets its own log file.
@@ -39,24 +47,35 @@ I also keep a separate seed log because the initial base values are written befo
 
 ## About the verification logic
 
-I derive the transaction windows from the logs:
-- when a txn started
-- when it finished
-- whether it committed or aborted
+The verifier uses the real snapshot captured by MVCC at `startTransaction()` time.
 
-From that, I build a per-key timeline and check the GET results against the writes that should be visible.
+Each `START_TXN` log entry includes:
 
-This means the checker is based on what I can observe from outside MVCC. So it is strong, but it is still based on logged timing windows and not private internal state.
+- `snapshot_min_txn_id`
+- `snapshot_active_txns`
 
-If a transaction start window overlaps other transaction start or close events too tightly, then I treat that snapshot as ambiguous from outside and skip checking those GETs instead of claiming a false mismatch.
+Using this exact snapshot data, the checker computes visibility deterministically and validates each successful GET against the expected latest visible write on that key timeline.
 
-So if you see many `skipped_gets`, that means the run had many overlapping/ambiguous start windows. It does **not** automatically mean MVCC is wrong.
+This removes timing-window approximation from snapshot reconstruction and removes the need for an ambiguity/skip path.
 
 ## Saved timelines
 
 If I find something suspicious, I save a detailed timeline for that key inside `saved_timelines/<experiment_name>/`.
 
 That file is supposed to be readable by a person. It shows the key timeline and clearly marks which GETs looked wrong.
+
+## Output summary
+
+At the end, the test prints:
+
+- `total_transactions`
+- `total_operations`
+- `total_gets`
+- `checked_gets`
+- `mismatches`
+- `logs_dir`
+
+If mismatches are present, `saved_timelines_dir` is also printed.
 
 ## Time naming
 

@@ -1,1 +1,3 @@
 /build/
+/system_test/logs/*
+/system_test/saved_timelines/*

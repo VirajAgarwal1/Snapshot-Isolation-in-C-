@@ -1,0 +1,3 @@
+add_executable(mvcc_system_test mvcc_system_test.cpp)
+target_link_libraries(mvcc_system_test PRIVATE mvcc)
+target_compile_definitions(mvcc_system_test PRIVATE SYSTEM_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")

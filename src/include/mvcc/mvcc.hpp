@@ -30,11 +30,16 @@ struct Snapshot {
     TransactionId minTransactionId = 0;
 };
 
+struct StartResult {
+    TransactionId transactionId = 0;
+    Snapshot snapshot;
+};
+
 class MVCC {
 public:
     explicit MVCC(naive_storage_engine::Limits limits = {});
 
-    TransactionId startTransaction();
+    StartResult startTransaction();
     GetResult get(TransactionId transactionId, std::uint32_t key);
     bool set(TransactionId transactionId, std::uint32_t key, std::int64_t value);
     bool deleteKey(TransactionId transactionId, std::uint32_t key);

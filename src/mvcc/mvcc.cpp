@@ -41,7 +41,7 @@ namespace mvcc {
 MVCC::MVCC(naive_storage_engine::Limits limits) : storageEngine_(limits) {
 }
 
-TransactionId MVCC::startTransaction() {
+StartResult MVCC::startTransaction() {
     const TransactionId transactionId = nextTransactionId_.fetch_add(1);
 
     Snapshot snapshot;
@@ -55,11 +55,11 @@ TransactionId MVCC::startTransaction() {
 
     try {
         std::unique_lock<std::shared_mutex> snapshotsLock(transactionSnapshotsMutex_);
-        transactionSnapshots_[transactionId] = std::move(snapshot);
-        return transactionId;
+        transactionSnapshots_[transactionId] = snapshot;
+        return {transactionId, std::move(snapshot)};
     } catch (...) {
         (void)abort(transactionId);
-        return 0;
+        return {0, {}};
     }
 }
 
